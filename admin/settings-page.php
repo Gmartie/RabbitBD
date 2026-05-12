@@ -288,20 +288,30 @@ function rabbit_bd_page(): void {
 
 /**
  * Genera el icono del menu lateral usando el SVG del logo de Rabbit BD.
- * WordPress requiere un data URI en base64.
+ *
+ * WordPress no procesa CSS sobre iconos data URI en el menu lateral,
+ * por lo que hay que forzar fill="white" directamente en el SVG.
+ * Sustituimos cualquier fill existente por blanco para que el icono
+ * sea visible sobre el fondo oscuro del menu de WordPress.
  */
 function rabbit_bd_menu_icon(): string {
     $svg_path = RABBIT_BD_PATH . 'RabbitBDLogo.svg';
 
     if (file_exists($svg_path)) {
         $svg = file_get_contents($svg_path);
-        // WordPress colorea el icono con CSS; para que funcione la coloracion
-        // eliminamos atributos fill explicitos del SVG de menu (no del logo de cabecera)
-        $svg_menu = preg_replace('/\sfill="[^"]*"/', '', $svg);
+
+        // Reemplazar todos los fills de color por blanco
+        $svg_menu = preg_replace('/\sfill="[^"]*"/', ' fill="white"', $svg);
+
+        // Asegurar que el SVG raiz tiene fill="white" si no tenia ninguno
+        if (!str_contains($svg_menu, 'fill="white"')) {
+            $svg_menu = str_replace('<svg ', '<svg fill="white" ', $svg_menu);
+        }
+
         return 'data:image/svg+xml;base64,' . base64_encode($svg_menu);
     }
 
     // Fallback minimo si no se encuentra el archivo
-    $fallback = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect width="20" height="20" rx="3" fill="white" opacity="0.8"/></svg>';
+    $fallback = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect width="20" height="20" rx="3" fill="white"/></svg>';
     return 'data:image/svg+xml;base64,' . base64_encode($fallback);
 }
