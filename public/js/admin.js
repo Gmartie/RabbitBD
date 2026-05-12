@@ -1,10 +1,20 @@
-/* Rabbit Migrator — Admin JS */
+/* Rabbit BD — Admin JS */
 (function ($) {
     'use strict';
 
-    const { ajax_url, nonce } = rabbitBD;
+    const { ajax_url, nonce, batch_size } = rabbitBD;
 
-    // ── Tab switching ─────────────────────────────────────────────────────
+    // Estado interno del proceso de descarga por lotes
+    let downloadState = {
+        running  : false,
+        paused   : false,
+        offset   : 0,
+        total    : 0,
+        ok       : 0,
+        errors   : 0,
+    };
+
+    // Tab switching
     $(document).on('click', '.rabbit-tab', function () {
         const tab = $(this).data('tab');
         $('.rabbit-tab').removeClass('active');
@@ -13,7 +23,6 @@
         $('#tab-' + tab).addClass('active');
     });
 
-    // ── Helper: mostrar resultado ─────────────────────────────────────────
     function showResult($el, type, html) {
         $el.removeClass('success error info')
            .addClass(type)
@@ -25,39 +34,93 @@
         return '<span class="rabbit-spinner"></span>';
     }
 
-    // ── Paso 1: Descargar imágenes de PrestaShop ──────────────────────────
-    $('#btn-download-images').on('click', function () {
-        const $btn    = $(this);
-        const $result = $('#download-result');
+    function updateProgressBar(offset, total) {
+        const pct = total > 0 ? Math.round((offset / total) * 100) : 0;
+        $('#download-progress-bar').css('width', pct + '%');
+        $('#download-progress-label').text(offset + ' / ' + total + ' (' + pct + '%)');
+        $('#download-progress-wrap').show();
+    }
 
-        $btn.prop('disabled', true);
-        showResult($result, 'info', spinner() + 'Descargando imágenes… esto puede tardar varios minutos.');
+    // Paso 1: Descarga por lotes con barra de progreso y pausa/reanudacion
+    function runDownloadBatch() {
+        if (!downloadState.running || downloadState.paused) return;
 
         $.post(ajax_url, {
-            action : 'rabbit_bd_download_images',
-            nonce  : nonce,
-            presta_url     : $('[name="rabbit_migrator_presta_url"]').val() || '',
-            presta_api_key : $('[name="rabbit_migrator_presta_key"]').val() || '',
+            action     : 'rabbit_bd_download_images',
+            nonce      : nonce,
+            presta_url     : $('[name="rabbit_bd_presta_url"]').val() || '',
+            presta_api_key : $('[name="rabbit_bd_presta_key"]').val() || '',
+            offset     : downloadState.offset,
         })
         .done(function (res) {
-            if (res.success) {
-                showResult($result, 'success',
-                    '✅ Descarga completada.<br>' +
-                    '<strong>Productos OK:</strong> ' + res.data.productos_ok + '<br>' +
-                    '<strong>Errores:</strong> ' + res.data.productos_error + '<br>' +
-                    '<strong>Directorio:</strong> <code>' + res.data.directorio + '</code>'
+            if (!res.success) {
+                downloadState.running = false;
+                showResult($('#download-result'), 'error', 'Error: ' + (res.data.message || JSON.stringify(res.data)));
+                resetDownloadButtons();
+                return;
+            }
+
+            const d = res.data;
+            downloadState.offset = d.offset;
+            downloadState.total  = d.total;
+            downloadState.ok    += d.lote_ok;
+            downloadState.errors += d.lote_error;
+
+            updateProgressBar(d.offset, d.total);
+
+            if (d.finished) {
+                downloadState.running = false;
+                showResult($('#download-result'), 'success',
+                    'Descarga completada.<br>' +
+                    '<strong>Productos OK:</strong> ' + downloadState.ok + '<br>' +
+                    '<strong>Errores:</strong> ' + downloadState.errors + '<br>' +
+                    '<strong>Directorio:</strong> <code>' + d.directorio + '</code>'
                 );
+                resetDownloadButtons();
             } else {
-                showResult($result, 'error', '❌ Error: ' + (res.data.message || JSON.stringify(res.data)));
+                // Siguiente lote de forma asincrona (evita stack overflow en listas largas)
+                setTimeout(runDownloadBatch, 200);
             }
         })
         .fail(function () {
-            showResult($result, 'error', '❌ Error de red o timeout del servidor.');
-        })
-        .always(function () { $btn.prop('disabled', false); });
+            downloadState.running = false;
+            showResult($('#download-result'), 'error', 'Error de red o timeout. Puedes reanudar desde el ultimo punto.');
+            $('#btn-resume-download').show();
+            $('#btn-pause-download').hide();
+            $('#btn-download-images').prop('disabled', false);
+        });
+    }
+
+    function resetDownloadButtons() {
+        $('#btn-download-images').prop('disabled', false).show();
+        $('#btn-pause-download').hide();
+        $('#btn-resume-download').hide();
+    }
+
+    $('#btn-download-images').on('click', function () {
+        downloadState = { running: true, paused: false, offset: 0, total: 0, ok: 0, errors: 0 };
+        $(this).prop('disabled', true);
+        $('#btn-pause-download').show();
+        $('#download-result').hide();
+        runDownloadBatch();
     });
 
-    // ── Paso 2: Generar CSV ───────────────────────────────────────────────
+    $('#btn-pause-download').on('click', function () {
+        downloadState.paused = true;
+        $(this).hide();
+        $('#btn-resume-download').show();
+        showResult($('#download-result'), 'info', 'Descarga pausada en el producto ' + downloadState.offset + ' de ' + downloadState.total + '.');
+    });
+
+    $('#btn-resume-download').on('click', function () {
+        downloadState.paused  = false;
+        downloadState.running = true;
+        $(this).hide();
+        $('#btn-pause-download').show();
+        runDownloadBatch();
+    });
+
+    // Paso 2: Generar CSV
     $('#form-generate-csv').on('submit', function (e) {
         e.preventDefault();
         const $result = $('#csv-result');
@@ -65,7 +128,7 @@
         fd.append('action', 'rabbit_bd_generate_csv');
         fd.append('nonce',  nonce);
 
-        showResult($result, 'info', spinner() + 'Generando CSV de importación…');
+        showResult($result, 'info', spinner() + ' Generando CSV de importacion...');
 
         $.ajax({
             url         : ajax_url,
@@ -77,72 +140,88 @@
         .done(function (res) {
             if (res.success) {
                 showResult($result, 'success',
-                    '✅ CSV generado con <strong>' + res.data.productos + ' productos</strong>.<br>' +
+                    'CSV generado con <strong>' + res.data.productos + ' productos</strong>.<br>' +
                     'Archivo: <code>' + res.data.csv_filename + '</code><br>' +
-                    '<a href="' + res.data.csv_url + '" download class="button button-small" style="margin-top:8px">⬇️ Descargar CSV</a>'
+                    '<a href="' + res.data.csv_url + '" download class="button button-small" style="margin-top:8px">Descargar CSV</a>'
                 );
             } else {
-                showResult($result, 'error', '❌ ' + (res.data.message || JSON.stringify(res.data)));
+                showResult($result, 'error', res.data.message || JSON.stringify(res.data));
             }
         })
         .fail(function () {
-            showResult($result, 'error', '❌ Error de red al generar el CSV.');
+            showResult($result, 'error', 'Error de red al generar el CSV.');
         });
     });
 
-    // ── Paso 3: Testear URL de imagen ─────────────────────────────────────
+    // Paso 3: Testear URL de imagen
     $('#btn-test-url').on('click', function () {
         const url     = $('#test-image-url').val().trim();
         const $result = $('#url-test-result');
 
         if (!url) {
-            showResult($result, 'error', '⚠️ Introduce una URL antes de testear.');
+            showResult($result, 'error', 'Introduce una URL antes de testear.');
             return;
         }
 
-        showResult($result, 'info', spinner() + 'Comprobando accesibilidad HTTP…');
+        showResult($result, 'info', spinner() + ' Comprobando accesibilidad HTTP...');
 
         $.post(ajax_url, { action: 'rabbit_bd_test_image_url', nonce, url })
         .done(function (res) {
             showResult($result, res.success ? 'success' : 'error',
-                res.data.message || (res.success ? '✅ OK' : '❌ Error'));
+                res.data.message || (res.success ? 'OK' : 'Error'));
         })
         .fail(function () {
-            showResult($result, 'error', '❌ Error de red al testear la URL.');
+            showResult($result, 'error', 'Error de red al testear la URL.');
         });
     });
 
-    // ── Log: cargar ───────────────────────────────────────────────────────
+    // Log: cargar
     $('#btn-load-log').on('click', function () {
         $.post(ajax_url, { action: 'rabbit_bd_get_log', nonce })
         .done(function (res) {
             if (!res.success || !res.data.log.length) {
-                $('#log-table-wrapper').html('<p>El log está vacío.</p>');
+                $('#log-table-wrapper').html('<p>El log esta vacio.</p>');
                 return;
             }
             let html = '<table class="widefat striped"><thead><tr>' +
                 '<th>SKU</th><th>Producto</th><th>Estado</th><th>Mensaje</th><th>Fecha</th>' +
                 '</tr></thead><tbody>';
+
             res.data.log.forEach(function (r) {
-                const status = r.status === 'error' ? '❌' : r.status === 'downloaded' ? '✅' : '⏳';
-                html += `<tr>
-                    <td><code>${r.sku}</code></td>
-                    <td>${r.product_name}</td>
-                    <td>${status} ${r.status}</td>
-                    <td>${r.message}</td>
-                    <td>${r.created_at}</td>
-                </tr>`;
+                const statusLabel = {
+                    error      : 'Error',
+                    downloaded : 'Descargado',
+                    warning    : 'Aviso',
+                }[r.status] || r.status;
+
+                html += '<tr>' +
+                    '<td><code>' + escHtml(r.sku) + '</code></td>' +
+                    '<td>' + escHtml(r.product_name) + '</td>' +
+                    '<td class="log-status-' + escHtml(r.status) + '">' + statusLabel + '</td>' +
+                    '<td>' + escHtml(r.message) + '</td>' +
+                    '<td>' + escHtml(r.created_at) + '</td>' +
+                    '</tr>';
             });
+
             html += '</tbody></table>';
             $('#log-table-wrapper').html(html);
         });
     });
 
-    // ── Log: limpiar ──────────────────────────────────────────────────────
+    // Log: limpiar
     $('#btn-clear-log').on('click', function () {
-        if (!confirm('¿Limpiar todo el log?')) return;
+        if (!confirm('Limpiar todo el log?')) return;
         $.post(ajax_url, { action: 'rabbit_bd_clear_log', nonce })
         .done(function () { $('#log-table-wrapper').html('<p>Log limpiado.</p>'); });
     });
+
+    // Escapar HTML para evitar XSS al insertar datos del servidor en el DOM
+    function escHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
 
 })(jQuery);

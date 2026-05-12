@@ -1,49 +1,95 @@
 <?php
 /**
- * Procesado del Excel del cliente (hoja MASTER) y generación del CSV de importación
- * para WooCommerce con multicategorías y URLs absolutas de imágenes.
- * Implementa los pasos 2 y 3 del documento.
+ * Procesado del CSV del cliente (hoja MASTER) y generacion del CSV de importacion
+ * para WooCommerce con multicategorias y URLs absolutas de imagenes.
  */
 if (!defined('ABSPATH')) exit;
 
 class Rabbit_CSV_Processor {
 
     /**
-     * Lee el CSV exportado de PrestaShop y devuelve un mapa Nombre→SKU
-     * para enriquecer la hoja MASTER del cliente.
+     * Detecta automaticamente el delimitador de un archivo CSV.
+     * Evita la perdida de filas que ocurre al usar fgetcsv con delimitador incorrecto.
+     */
+    public static function detect_delimiter(string $filepath): string {
+        $handle = fopen($filepath, 'r');
+        $line   = fgets($handle);
+        fclose($handle);
+
+        $delimiters = [';' => 0, ',' => 0, "\t" => 0, '|' => 0];
+        foreach (array_keys($delimiters) as $d) {
+            $delimiters[$d] = substr_count($line, $d);
+        }
+        arsort($delimiters);
+        return array_key_first($delimiters);
+    }
+
+    /**
+     * Lee un CSV completo en un array de filas asociativas.
+     * Usa el delimitador pre-detectado para evitar columnas mal alineadas.
      *
-     * @param string $presta_csv Ruta al CSV de PrestaShop
+     * @return array<int, array<string, string>>
+     */
+    public static function parse_csv(string $filepath, string $delimiter = ','): array {
+        $rows   = [];
+        $handle = fopen($filepath, 'r');
+        // BOM UTF-8
+        $bom    = fread($handle, 3);
+        if ($bom !== "\xEF\xBB\xBF") {
+            rewind($handle);
+        }
+
+        $header = fgetcsv($handle, 0, $delimiter);
+        if (!$header) {
+            fclose($handle);
+            return [];
+        }
+        $header = array_map('strtolower', array_map('trim', $header));
+
+        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
+            if (count($row) < count($header)) {
+                // Rellenar columnas faltantes con string vacio
+                $row = array_pad($row, count($header), '');
+            }
+            $rows[] = array_combine($header, $row);
+        }
+        fclose($handle);
+        return $rows;
+    }
+
+    /**
+     * Lee el CSV exportado de PrestaShop y devuelve un mapa Nombre->SKU.
+     * Usa autodeteccion de delimitador para no consumir filas incorrectamente.
+     *
      * @return array<string,string>  ['Nombre producto' => 'SKU']
      */
     public static function build_sku_dictionary(string $presta_csv): array {
-        $map = [];
-        if (!file_exists($presta_csv)) return $map;
+        if (!file_exists($presta_csv)) return [];
 
-        $handle = fopen($presta_csv, 'r');
-        $header = fgetcsv($handle, 0, ';') ?: fgetcsv($handle, 0, ',');
+        $delimiter = self::detect_delimiter($presta_csv);
+        $rows      = self::parse_csv($presta_csv, $delimiter);
+        $map       = [];
 
-        // Intentar detectar columnas de nombre y referencia
-        $col_name = self::find_column($header, ['name', 'nombre', 'Name']);
-        $col_sku  = self::find_column($header, ['reference', 'referencia', 'sku', 'SKU']);
-
-        while (($row = fgetcsv($handle, 0, ';')) !== false) {
-            if (count($row) <= max($col_name, $col_sku)) continue;
-            $map[trim($row[$col_name])] = trim($row[$col_sku]);
+        foreach ($rows as $row) {
+            $name = trim($row['name'] ?? $row['nombre'] ?? '');
+            $sku  = trim($row['reference'] ?? $row['referencia'] ?? $row['sku'] ?? '');
+            if ($name !== '' && $sku !== '') {
+                $map[$name] = $sku;
+            }
         }
-        fclose($handle);
 
         return $map;
     }
 
     /**
-     * Genera el CSV de importación para WooCommerce (paso 2 + 3 del doc).
+     * Genera el CSV de importacion para WooCommerce.
      *
      * @param array  $master_rows   Filas de la hoja MASTER del cliente
-     * @param array  $sku_dict      Mapa nombre→SKU del CSV de PrestaShop
+     * @param array  $sku_dict      Mapa nombre->SKU del CSV de PrestaShop
      * @param string $images_dir    Directorio local con subcarpetas por SKU
-     * @param string $base_url      URL base donde se sirven las imágenes
-     *                              p.ej. http://confortfurniture.palikecomunicacion.com/wp-content/uploads/imports/
-     * @param string $output_path   Ruta donde escribir el CSV final
+     * @param string $base_url      URL base publica de las imagenes
+     * @param string $output_path   Ruta donde escribir el CSV generado
+     * @return int  Numero de productos procesados
      */
     public static function generate_woo_csv(
         array  $master_rows,
@@ -55,7 +101,6 @@ class Rabbit_CSV_Processor {
         $base_url = trailingslashit($base_url);
         $handle   = fopen($output_path, 'w');
 
-        // Cabecera WooCommerce
         fputcsv($handle, [
             'Type', 'SKU', 'Name', 'Published', 'Visibility in catalog',
             'Regular price', 'Categories', 'Images', 'In stock?', 'Stock',
@@ -64,27 +109,27 @@ class Rabbit_CSV_Processor {
         $imported = 0;
 
         foreach ($master_rows as $row) {
-            $name  = trim($row['name']      ?? $row['nombre']     ?? '');
-            $price = trim($row['price']     ?? $row['precio']     ?? '');
-            $cats  = trim($row['categories'] ?? $row['categorias'] ?? '');
-            $sku   = trim($row['sku']       ?? $row['referencia'] ?? $sku_dict[$name] ?? '');
+            $name  = trim($row['name']       ?? $row['nombre']      ?? '');
+            $price = trim($row['price']      ?? $row['precio']      ?? '');
+            $cats  = trim($row['categories'] ?? $row['categorias']  ?? '');
+            $sku   = trim($row['sku']        ?? $row['referencia']  ?? $sku_dict[$name] ?? '');
 
             if (empty($name)) continue;
 
-            // Construir lista de imágenes con URLs absolutas (fix definitivo del doc)
+            // Construir URLs absolutas con la carpeta SKU incluida en la ruta
             $images = self::build_image_urls($sku, $images_dir, $base_url);
 
             fputcsv($handle, [
-                'simple',          // Type
-                $sku,              // SKU
-                $name,             // Name
-                1,                 // Published
-                'visible',         // Visibility in catalog
-                $price,            // Regular price
-                $cats,             // Categories (multicategoría separada por coma)
-                $images,           // Images — URLs absolutas, primera = destacada
-                1,                 // In stock?
-                '',                // Stock (vacío si no se controla)
+                'simple',
+                $sku,
+                $name,
+                1,
+                'visible',
+                $price,
+                $cats,
+                $images,
+                1,
+                '',
             ]);
 
             $imported++;
@@ -95,37 +140,38 @@ class Rabbit_CSV_Processor {
     }
 
     /**
-     * Construye la lista de URLs absolutas de imágenes para un SKU dado.
-     * Busca en <images_dir>/<SKU>/ y ordena los archivos por nombre.
-     * La primera imagen será la destacada en WooCommerce.
+     * Construye la lista de URLs absolutas para las imagenes de un SKU.
+     *
+     * La URL incluye la subcarpeta del SKU: <base_url><SKU>/<archivo>.jpg
+     * Este es el fix del bug critico #1: las URLs deben incluir la carpeta SKU.
      */
     public static function build_image_urls(string $sku, string $images_dir, string $base_url): string {
+        if (empty($sku)) return '';
+
         $sku_dir = trailingslashit($images_dir) . $sku;
-        if (empty($sku) || !is_dir($sku_dir)) return '';
+        if (!is_dir($sku_dir)) return '';
 
         $extensions = ['jpg', 'jpeg', 'png', 'webp'];
         $files      = [];
 
         foreach (scandir($sku_dir) as $file) {
+            if ($file === '.' || $file === '..') continue;
             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
             if (in_array($ext, $extensions, true)) {
                 $files[] = $file;
             }
         }
 
-        sort($files); // Ordenación consistente por nombre
+        if (empty($files)) return '';
 
-        $urls = array_map(fn($f) => $base_url . $f, $files);
+        sort($files);
+
+        // URL correcta: base_url + SKU_codificado + '/' + nombre_archivo_codificado
+        $urls = array_map(
+            fn($f) => $base_url . rawurlencode($sku) . '/' . rawurlencode($f),
+            $files
+        );
+
         return implode(',', $urls);
-    }
-
-    // ------------------------------------------------------------------ //
-
-    private static function find_column(array $header, array $candidates): int {
-        foreach ($candidates as $name) {
-            $idx = array_search(strtolower($name), array_map('strtolower', $header));
-            if ($idx !== false) return (int)$idx;
-        }
-        return 0;
     }
 }

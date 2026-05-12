@@ -1,4 +1,4 @@
-/* ── Rabbit Migrator — Admin Styles ─────────────────────────────────────── */
+/* Rabbit BD — Admin Styles */
 
 .rabbit-bd-wrap {
     max-width: 960px;
@@ -112,9 +112,39 @@
     line-height: 1.6;
 }
 
-.rabbit-result.success { background:#edfaed; border:1px solid #5cb85c; color:#2d5e2d; }
-.rabbit-result.error   { background:#fde9e9; border:1px solid #d9534f; color:#7a1a1a; }
-.rabbit-result.info    { background:#e8f4f8; border:1px solid #5bc0de; color:#1a5066; }
+.rabbit-result.success { background: #edfaed; border: 1px solid #5cb85c; color: #2d5e2d; }
+.rabbit-result.error   { background: #fde9e9; border: 1px solid #d9534f; color: #7a1a1a; }
+.rabbit-result.info    { background: #e8f4f8; border: 1px solid #5bc0de; color: #1a5066; }
+
+/* Barra de progreso del proceso de descarga por lotes */
+.rabbit-progress-bar {
+    position: relative;
+    background: #e0e0e0;
+    border-radius: 6px;
+    height: 28px;
+    margin: 16px 0 8px;
+    overflow: hidden;
+}
+
+.rabbit-progress-inner {
+    height: 100%;
+    background: #2271b1;
+    border-radius: 6px;
+    transition: width .3s ease;
+    width: 0%;
+}
+
+#download-progress-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: .82rem;
+    font-weight: 600;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0,0,0,.4);
+    white-space: nowrap;
+}
 
 /* Steps list */
 .rabbit-steps {
@@ -124,7 +154,12 @@
 
 .rabbit-steps li { margin-bottom: 4px; }
 
-/* Spinner */
+/* Log: colores de estado */
+.log-status-error    { color: #d9534f; font-weight: 600; }
+.log-status-warning  { color: #d48000; font-weight: 600; }
+.log-status-downloaded { color: #3a7d44; }
+
+/* Spinner inline */
 .rabbit-spinner {
     display: inline-block;
     width: 16px;
