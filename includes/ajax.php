@@ -32,25 +32,50 @@ function rabbit_ajax_download_images(): void {
     $batch  = array_slice($ids, $offset, RABBIT_BD_BATCH_SIZE);
     $done   = 0;
     $errors = 0;
+    $error_details = [];
 
     foreach ($batch as $id) {
         $product = $api->get_product((int)$id);
         if (!$product) {
             $errors++;
+            $msg = "Producto ID {$id}: no se pudo obtener de la API (respuesta vacía o error HTTP).";
+            $error_details[] = $msg;
+            rabbit_bd_log('', "ID:{$id}", 'error', $msg);
             continue;
         }
 
-        // Extraer nombre multilenguaje de forma robusta
+        $sku  = $product['reference'] ?? '';
         $name = Rabbit_Prestashop_API::extract_multilang_field($product, 'name');
+
+        if (empty($sku)) {
+            $errors++;
+            $msg = "Producto \"{$name}\" (ID {$id}) sin SKU (campo Referencia vacío), se omite.";
+            $error_details[] = $msg;
+            rabbit_bd_log('', $name, 'error', $msg);
+            continue;
+        }
+
+        // Verificar que tiene imágenes asociadas
+        $image_ids = $product['associations']['images'] ?? [];
+        if (empty($image_ids)) {
+            $errors++;
+            $msg = "SKU {$sku}: no tiene imágenes asociadas en PrestaShop.";
+            $error_details[] = $msg;
+            rabbit_bd_log($sku, $name, 'error', $msg);
+            continue;
+        }
 
         $files = $api->download_all_images_for_product($product, $dir);
         if (empty($files)) {
             $errors++;
+            $msg = "SKU {$sku}: imágenes encontradas ({$id}) pero ninguna se descargó correctamente.";
+            $error_details[] = $msg;
+            rabbit_bd_log($sku, $name, 'error', $msg);
             continue;
         }
 
         rabbit_bd_log(
-            $product['reference'] ?? '',
+            $sku,
             $name,
             'downloaded',
             sprintf('%d imagen(es) descargada(s).', count($files))
@@ -70,6 +95,7 @@ function rabbit_ajax_download_images(): void {
         'lote_error'      => $errors,
         'finished'        => $finished,
         'directorio'      => $dir,
+        'error_details'   => $error_details,
     ]);
 }
 

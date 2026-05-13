@@ -72,12 +72,16 @@
 
             if (d.finished) {
                 downloadState.running = false;
-                showResult($('#download-result'), 'success',
-                    'Descarga completada.<br>' +
+                var html = 'Descarga completada.<br>' +
                     '<strong>Productos OK:</strong> ' + downloadState.ok + '<br>' +
                     '<strong>Errores:</strong> ' + downloadState.errors + '<br>' +
-                    '<strong>Directorio:</strong> <code>' + d.directorio + '</code>'
-                );
+                    '<strong>Directorio:</strong> <code>' + d.directorio + '</code>';
+                if (d.error_details && d.error_details.length) {
+                    html += '<br><br><strong>Detalle de errores:</strong><ul style="margin:6px 0 0;padding-left:18px">';
+                    d.error_details.forEach(function(e) { html += '<li>' + e + '</li>'; });
+                    html += '</ul>';
+                }
+                showResult($('#download-result'), downloadState.errors > 0 && downloadState.ok === 0 ? 'error' : 'success', html);
                 resetDownloadButtons();
             } else {
                 // Siguiente lote de forma asincrona (evita stack overflow en listas largas)

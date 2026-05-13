@@ -25,3 +25,11 @@ register_activation_hook(__FILE__, 'rabbit_bd_activate');
 function rabbit_bd_activate(): void {
     rabbit_bd_create_tables();
 }
+
+// Garantiza que las tablas existen aunque el plugin se actualice sin reactivar
+add_action('admin_init', function () {
+    if (get_option('rabbit_bd_db_version') !== RABBIT_BD_VERSION) {
+        rabbit_bd_create_tables();
+        update_option('rabbit_bd_db_version', RABBIT_BD_VERSION);
+    }
+});
