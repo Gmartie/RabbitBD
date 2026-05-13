@@ -30,7 +30,7 @@ class Rabbit_Prestashop_API {
     }
 
     public function get_product(int $product_id): array|false {
-        $url  = "{$this->base_url}/api/products/{$product_id}?output_format=JSON&display=[id,reference,name,associations]";
+        $url  = "{$this->base_url}/api/products/{$product_id}?output_format=JSON";
         $body = $this->request($url);
         if (is_wp_error($body)) return false;
 
