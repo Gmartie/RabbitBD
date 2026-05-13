@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Rabbit BD
  * Description: Herramienta de migración de sitios web hacia WooCommerce. Importa productos con SKUs, multicategorías, imágenes destacadas y galerías completas desde PrestaShop.
- * Version: 1.1
+ * Version: 1.4
  * Author: Gabriel
  * Requires Plugins: woocommerce
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) exit;
 
 define('RABBIT_BD_PATH',    plugin_dir_path(__FILE__));
 define('RABBIT_BD_URL',     plugin_dir_url(__FILE__));
-define('RABBIT_BD_VERSION', '1.1');
+define('RABBIT_BD_VERSION', '1.4');
 
 require_once RABBIT_BD_PATH . 'includes/database.php';
 require_once RABBIT_BD_PATH . 'includes/ajax.php';

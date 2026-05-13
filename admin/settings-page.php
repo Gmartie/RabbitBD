@@ -86,6 +86,7 @@ function rabbit_bd_page(): void {
             <button class="rabbit-tab" data-tab="step2">2 · Generar CSV</button>
             <button class="rabbit-tab" data-tab="step3">3 · Validar URL</button>
             <button class="rabbit-tab" data-tab="step4">4 · Importar</button>
+            <button class="rabbit-tab" data-tab="exportdb"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>Exportar BD</button>
             <button class="rabbit-tab" data-tab="log">Log</button>
         </div>
 
@@ -131,7 +132,7 @@ function rabbit_bd_page(): void {
                         <td>
                             <?php
                             $upload_info = wp_upload_dir();
-                            $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd-public/';
+                            $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd/';
                             ?>
                             <code><?php echo esc_html($auto_public_url); ?></code>
                             <p class="description">Generada automáticamente. El plugin copia las imágenes aquí tras descargarlas, sin necesidad de FTP.</p>
@@ -212,7 +213,7 @@ function rabbit_bd_page(): void {
             <form id="form-generate-csv" enctype="multipart/form-data">
                 <?php
                 $upload_info     = wp_upload_dir();
-                $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd-public/';
+                $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd/';
                 ?>
                 <table class="form-table">
                     <tr>
@@ -262,9 +263,9 @@ function rabbit_bd_page(): void {
 
             <?php
             $upload_info     = wp_upload_dir();
-            $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd-public/';
+            $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd/';
             // Buscar una imagen real de ejemplo en la carpeta pública
-            $public_base_dir = trailingslashit($upload_info['basedir']) . 'rabbit-bd-public/';
+            $public_base_dir = trailingslashit($upload_info['basedir']) . 'rabbit-bd/';
             $example_url     = '';
             if (is_dir($public_base_dir)) {
                 foreach (new DirectoryIterator($public_base_dir) as $item) {
@@ -331,6 +332,40 @@ function rabbit_bd_page(): void {
         </div>
 
         <!-- LOG -->
+        <!-- EXPORTAR BD -->
+        <div class="rabbit-panel" id="tab-exportdb">
+            <h2>Exportar Base de Datos</h2>
+            <p>Descarga una copia completa de la base de datos de WordPress en formato SQL (restaurable) o CSV (legible en Excel). Útil para hacer backup antes de la migración o para auditar datos.</p>
+
+            <div class="rabbit-info-box">
+                <strong>Formatos disponibles:</strong><br>
+                <code>SQL</code> — Volcado completo con CREATE TABLE + INSERT, restaurable con phpMyAdmin o MySQL.<br>
+                <code>CSV (ZIP)</code> — Una hoja por tabla, comprimidas en ZIP. Ideal para abrir en Excel o Google Sheets.
+            </div>
+
+            <div id="db-tables-wrapper" style="margin:16px 0 20px">
+                <button id="btn-load-tables" class="button">Cargar lista de tablas</button>
+                <div id="db-tables-list" style="margin-top:12px;display:none">
+                    <p><strong>Tablas disponibles:</strong> <span id="db-tables-count">—</span></p>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px" id="db-tables-checkboxes"></div>
+                    <p style="margin-top:10px">
+                        <label><input type="checkbox" id="db-select-all" checked> Seleccionar todas</label>
+                    </p>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                <button id="btn-export-sql" class="button button-primary button-large" disabled>⬇ Descargar SQL</button>
+                <button id="btn-export-csv" class="button button-secondary button-large" disabled>⬇ Descargar CSV (ZIP)</button>
+            </div>
+
+            <div id="export-db-result" class="rabbit-result" style="display:none;margin-top:16px"></div>
+
+            <div class="rabbit-info-box" style="margin-top:20px;background:#fff8e1;border-left-color:#f5a623">
+                <strong>⚠ Aviso de seguridad:</strong> Los archivos exportados se guardan temporalmente en <code>wp-content/uploads/</code> y son accesibles públicamente por URL. Descárgalos y elimínalos del servidor inmediatamente después.
+            </div>
+        </div>
+
         <div class="rabbit-panel" id="tab-log">
             <h2>Log de operaciones</h2>
             <p>
@@ -362,23 +397,90 @@ function rabbit_bd_page(): void {
             start: {
                 bot: '¡Hola! Soy Rabbit. ¿En qué puedo ayudarte?',
                 opts: [
-                    { label: '¿Cómo funciona el plugin?',      next: 'overview'      },
-                    { label: 'Tengo un error en Paso 1',        next: 'err_paso1'     },
-                    { label: 'Tengo un error en Paso 2',        next: 'err_paso2'     },
-                    { label: 'Tengo un error en Paso 3/4',      next: 'err_paso34'    },
-                    { label: 'Configuración inicial',           next: 'config'        },
-                    { label: 'El log está vacío / no aparece',  next: 'err_log'       },
+                    { label: '¿Cómo funciona el plugin?',        next: 'overview'      },
+                    { label: 'Error en Paso 0 (Exportar MASTER)', next: 'err_paso0'     },
+                    { label: 'Error en Paso 1 (Imágenes)',         next: 'err_paso1'     },
+                    { label: 'Error en Paso 2 (Generar CSV)',       next: 'err_paso2'     },
+                    { label: 'Error en Paso 3 / 4',                next: 'err_paso34'    },
+                    { label: '¿Cómo exporto la base de datos?',    next: 'exportdb'      },
+                    { label: 'Configuración inicial',              next: 'config'        },
+                    { label: 'El log está vacío / no aparece',     next: 'err_log'       },
                 ]
             },
 
             // ── Visión general ────────────────────────────────────────────────
             overview: {
-                bot: 'Rabbit BD migra productos de PrestaShop a WooCommerce en 4 pasos:\n\n1️⃣ Descarga imágenes desde la API de PrestaShop y las guarda en carpetas por SKU.\n2️⃣ Genera un CSV compatible con el importador de WooCommerce.\n3️⃣ Valida que las imágenes son accesibles por HTTP.\n4️⃣ Importas el CSV desde WooCommerce → Productos → Importar.',
+                bot: 'Rabbit BD migra productos de PrestaShop a WooCommerce en estos pasos:\n\n0️⃣ Exportar MASTER — genera el CSV de productos desde la API de PrestaShop.\n1️⃣ Descargar imágenes — las guarda en carpetas por nombre de producto.\n2️⃣ Generar CSV — produce el archivo listo para WooCommerce.\n3️⃣ Validar URLs — comprueba accesibilidad de imágenes.\n4️⃣ Importar — desde WooCommerce → Productos → Importar.\n🗄 Exportar BD — descarga la base de datos en SQL o CSV.',
                 opts: [
                     { label: '¿Qué necesito antes de empezar?', next: 'config'      },
+                    { label: 'Explícame el Paso 0',              next: 'detail_p0'  },
                     { label: 'Explícame el Paso 1',              next: 'detail_p1'  },
                     { label: 'Explícame el Paso 2',              next: 'detail_p2'  },
+                    { label: '¿Cómo exporto la BD?',             next: 'exportdb'   },
                     { label: '← Volver al inicio',               next: 'start'     },
+                ]
+            },
+
+            // ── Detalle Paso 0 ───────────────────────────────────────────────
+            detail_p0: {
+                bot: 'El Paso 0 genera el CSV MASTER automáticamente desde PrestaShop:\n\n• Se conecta a la API y obtiene todos los productos.\n• Exporta: nombre, SKU, precio y categorías (sin Home/Root).\n• Descarga el archivo rabbit-bd-master.csv listo para el Paso 2.\n\nNecesitas URL y API Key configuradas en la pestaña Configuración.',
+                opts: [
+                    { label: 'No conecta / no encuentra productos', next: 'err_no_products' },
+                    { label: 'URL de PrestaShop no válida',          next: 'err_url'         },
+                    { label: 'Error de permisos 403',                next: 'err_403'         },
+                    { label: '← Volver al inicio',                   next: 'start'          },
+                ]
+            },
+
+            // ── Errores Paso 0 ───────────────────────────────────────────────
+            err_paso0: {
+                bot: '¿Qué error tienes en el Paso 0 (Exportar MASTER)?',
+                opts: [
+                    { label: 'No conecta / no encuentra productos', next: 'err_no_products' },
+                    { label: 'URL de PrestaShop no válida',          next: 'err_url'         },
+                    { label: 'Error 403 / sin permisos',             next: 'err_403'         },
+                    { label: 'No aparece el botón de exportar',      next: 'err_paso0_nobtn' },
+                    { label: '← Volver al inicio',                   next: 'start'          },
+                ]
+            },
+
+            err_paso0_nobtn: {
+                bot: 'Si no aparece el botón "Exportar MASTER":\n\n• La URL o la API Key de PrestaShop no están guardadas.\n• Ve a la pestaña Configuración, rellena ambos campos y pulsa "Guardar configuración".\n• Vuelve al Paso 0 y el botón aparecerá.',
+                opts: [
+                    { label: '¿Cómo creo la API Key?',  next: 'apikey'  },
+                    { label: '← Volver al inicio',       next: 'start'  },
+                ]
+            },
+
+            // ── Exportar BD ─────────────────────────────────────────────────
+            exportdb: {
+                bot: 'La pestaña "🗄 Exportar BD" descarga toda la base de datos de WordPress:\n\n• SQL — volcado completo restaurable desde phpMyAdmin.\n• CSV (ZIP) — cada tabla como CSV separado en un ZIP para Excel.\n\nPasos:\n1. Pulsa "Cargar lista de tablas".\n2. Selecciona las tablas que quieras.\n3. Elige formato y descarga.\n4. ⚠ Borra el archivo del servidor tras descargarlo — queda accesible públicamente en uploads/.',
+                opts: [
+                    { label: 'El ZIP no se genera',              next: 'err_export_zip' },
+                    { label: 'Cómo restaurar el SQL',             next: 'err_export_sql' },
+                    { label: 'Cómo borrar el archivo exportado',  next: 'err_export_sec' },
+                    { label: '← Volver al inicio',                next: 'start'         },
+                ]
+            },
+
+            err_export_zip: {
+                bot: 'Si el ZIP no se genera:\n\n• El servidor puede no tener la extensión ZipArchive de PHP.\n• En ese caso el plugin exporta todas las tablas en un único CSV con separadores.\n• Pide a tu hosting que active php-zip (ext-zip).',
+                opts: [
+                    { label: '← Volver al inicio',  next: 'start' },
+                ]
+            },
+
+            err_export_sql: {
+                bot: 'Para restaurar el SQL exportado:\n\n1. phpMyAdmin → selecciona la base de datos destino.\n2. Pestaña "Importar" → selecciona el archivo .sql.\n3. Codificación: utf8mb4 → Continuar.\n\nEl archivo usa SET FOREIGN_KEY_CHECKS=0 para evitar errores de clave foránea.',
+                opts: [
+                    { label: '← Volver al inicio',  next: 'start' },
+                ]
+            },
+
+            err_export_sec: {
+                bot: 'Para eliminar el archivo exportado del servidor:\n\n• FTP: navega a wp-content/uploads/ y borra rabbit-bd-export-*.sql o .zip.\n• SSH: rm /ruta/wp-content/uploads/rabbit-bd-export-*.\n\nEs importante hacerlo: el archivo contiene todos los datos de tu BD y es accesible por URL mientras esté en uploads/.',
+                opts: [
+                    { label: '← Volver al inicio',  next: 'start' },
                 ]
             },
 

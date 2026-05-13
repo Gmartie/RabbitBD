@@ -255,6 +255,81 @@
         .done(function () { $('#log-table-wrapper').html('<p>Log limpiado.</p>'); });
     });
 
+    // Exportar BD: cargar lista de tablas
+    $('#btn-load-tables').on('click', function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Cargando...');
+
+        $.post(ajax_url, { action: 'rabbit_bd_list_tables', nonce })
+        .done(function (res) {
+            $btn.prop('disabled', false).text('Recargar tablas');
+            if (!res.success) {
+                alert('Error al cargar tablas: ' + (res.data.message || 'desconocido'));
+                return;
+            }
+            const { tables, sizes } = res.data;
+            $('#db-tables-count').text(tables.length + ' tablas encontradas');
+
+            let html = '';
+            tables.forEach(function (t) {
+                const info = sizes[t] || {};
+                const label = t + ' (' + (info.rows || 0) + ' filas, ' + (info.size_mb || 0) + ' MB)';
+                html += '<label style="display:flex;align-items:center;gap:4px;padding:4px 8px;background:#f6f7f7;border-radius:4px;font-size:12px;cursor:pointer">' +
+                    '<input type="checkbox" class="db-table-check" value="' + escHtml(t) + '" checked> ' + escHtml(label) + '</label>';
+            });
+            $('#db-tables-checkboxes').html(html);
+            $('#db-tables-list').show();
+            $('#btn-export-sql, #btn-export-csv').prop('disabled', false);
+        })
+        .fail(function () {
+            $btn.prop('disabled', false).text('Cargar lista de tablas');
+            alert('Error de red al cargar tablas.');
+        });
+    });
+
+    // Seleccionar/deseleccionar todas
+    $('#db-select-all').on('change', function () {
+        $('.db-table-check').prop('checked', $(this).is(':checked'));
+    });
+
+    function getSelectedTables() {
+        const checked = $('.db-table-check:checked').map(function () { return $(this).val(); }).get();
+        return checked.length === $('.db-table-check').length ? 'all' : checked.join(',');
+    }
+
+    function doExport(format) {
+        const $result = $('#export-db-result');
+        const tables  = getSelectedTables();
+
+        if ($('.db-table-check').length && tables === '' && format !== 'all') {
+            showResult($result, 'error', 'Selecciona al menos una tabla para exportar.');
+            return;
+        }
+
+        showResult($result, 'info', spinner() + ' Generando exportación ' + format.toUpperCase() + '... puede tardar unos segundos.');
+
+        $.post(ajax_url, { action: 'rabbit_bd_export_db', nonce, format: format, tables: tables || 'all' })
+        .done(function (res) {
+            if (!res.success) {
+                showResult($result, 'error', res.data.message || 'Error al exportar.');
+                return;
+            }
+            const d = res.data;
+            const tablas = d.tablas + ' tabla(s)';
+            showResult($result, 'success',
+                '✅ Exportación completada · ' + tablas +
+                ' · <a href="' + escHtml(d.file_url) + '" download="' + escHtml(d.filename) + '" class="button button-primary" style="margin-left:8px">⬇ Descargar ' + escHtml(d.filename) + '</a>' +
+                '<p style="margin-top:8px;color:#b32d2e"><strong>⚠ Recuerda borrar este archivo del servidor una vez descargado.</strong></p>'
+            );
+        })
+        .fail(function () {
+            showResult($result, 'error', 'Error de red al exportar la base de datos.');
+        });
+    }
+
+    $('#btn-export-sql').on('click', function () { doExport('sql'); });
+    $('#btn-export-csv').on('click', function () { doExport('csv'); });
+
     // Escapar HTML para evitar XSS al insertar datos del servidor en el DOM
     function escHtml(str) {
         return String(str)
