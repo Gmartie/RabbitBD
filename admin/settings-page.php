@@ -51,7 +51,7 @@ function rabbit_bd_page(): void {
     $presta_key  = get_option('rabbit_bd_presta_key', '');
     $images_dir  = get_option('rabbit_bd_images_dir', WP_CONTENT_DIR . '/uploads/rabbit-bd');
     $base_url    = get_option('rabbit_bd_base_url', '');
-    $staging_url = get_option('rabbit_bd_staging_url', '');
+    $staging_url = get_option('rabbit_bd_staging_url', get_site_url());
     ?>
     <div class="wrap rabbit-bd-wrap">
 
@@ -281,6 +281,106 @@ function rabbit_bd_page(): void {
             </p>
             <div id="log-table-wrapper"></div>
         </div>
+
+    </div>
+
+    <!-- ASISTENTE RABBIT -->
+    <div id="rabbit-assistant" class="rabbit-assistant-bubble" title="Pregunta a Rabbit">
+        <div id="rabbit-assistant-icon">
+            <img src="<?php echo esc_url(RABBIT_BD_URL . 'RabbitBDLogo.svg'); ?>" alt="Rabbit" width="38" height="38">
+        </div>
+    </div>
+
+    <div id="rabbit-chat-panel" class="rabbit-chat-panel" style="display:none">
+        <div class="rabbit-chat-header">
+            <span>🐇 Rabbit — Asistente</span>
+            <button id="rabbit-chat-close" class="rabbit-chat-close">✕</button>
+        </div>
+        <div id="rabbit-chat-messages" class="rabbit-chat-messages">
+            <div class="rabbit-msg rabbit-msg-bot">¡Hola! Soy Rabbit, tu asistente de migración. Puedo ayudarte con la configuración, errores, o cualquier duda sobre el proceso PrestaShop → WooCommerce. ¿En qué te ayudo?</div>
+        </div>
+        <div class="rabbit-chat-input-row">
+            <input type="text" id="rabbit-chat-input" class="rabbit-chat-input" placeholder="Escribe tu pregunta..." autocomplete="off">
+            <button id="rabbit-chat-send" class="rabbit-chat-send">➤</button>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        var cfg = {
+            ajaxUrl : '<?php echo esc_js(admin_url('admin-ajax.php')); ?>',
+            nonce   : '<?php echo esc_js(wp_create_nonce('rabbit_bd_nonce')); ?>',
+            siteUrl : '<?php echo esc_js(get_site_url()); ?>',
+            prestaUrl : '<?php echo esc_js(get_option('rabbit_bd_presta_url','')); ?>',
+        };
+
+        var bubble = document.getElementById('rabbit-assistant');
+        var panel  = document.getElementById('rabbit-chat-panel');
+        var msgs   = document.getElementById('rabbit-chat-messages');
+        var input  = document.getElementById('rabbit-chat-input');
+        var send   = document.getElementById('rabbit-chat-send');
+        var close  = document.getElementById('rabbit-chat-close');
+        var busy   = false;
+
+        bubble.addEventListener('click', function() {
+            panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+            if (panel.style.display === 'flex') input.focus();
+        });
+
+        close.addEventListener('click', function() { panel.style.display = 'none'; });
+
+        function addMsg(text, who) {
+            var d = document.createElement('div');
+            d.className = 'rabbit-msg rabbit-msg-' + who;
+            d.textContent = text;
+            msgs.appendChild(d);
+            msgs.scrollTop = msgs.scrollHeight;
+            return d;
+        }
+
+        function askRabbit() {
+            var q = input.value.trim();
+            if (!q || busy) return;
+            busy = true;
+            addMsg(q, 'user');
+            input.value = '';
+            var thinking = addMsg('...', 'bot');
+
+            var systemPrompt = 'Eres Rabbit, un asistente experto en el plugin WordPress "Rabbit BD" que migra tiendas de PrestaShop a WooCommerce. ' +
+                'Responde siempre en español, de forma concisa y práctica. ' +
+                'El sitio WordPress actual es: ' + cfg.siteUrl + '. ' +
+                'La URL de PrestaShop configurada es: ' + (cfg.prestaUrl || '(no configurada)') + '. ' +
+                'El plugin tiene 4 pasos: 1) Descargar imágenes via API de PrestaShop, 2) Generar CSV para WooCommerce, 3) Validar URLs de imágenes, 4) Importar en WooCommerce. ' +
+                'Si el usuario tiene errores de descarga de imágenes, pregúntale si los productos tienen SKU (campo "Referencia") y si el Webservice de PrestaShop está activado. ' +
+                'Sé amable y usa emojis ocasionalmente.';
+
+            fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: 'claude-sonnet-4-20250514',
+                    max_tokens: 1000,
+                    system: systemPrompt,
+                    messages: [{ role: 'user', content: q }]
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var text = (data.content && data.content[0] && data.content[0].text)
+                    ? data.content[0].text
+                    : 'Lo siento, no pude obtener respuesta. Inténtalo de nuevo.';
+                thinking.textContent = text;
+            })
+            .catch(function() {
+                thinking.textContent = 'Error de conexión. Revisa tu acceso a internet e inténtalo de nuevo.';
+            })
+            .finally(function() { busy = false; });
+        }
+
+        send.addEventListener('click', askRabbit);
+        input.addEventListener('keydown', function(e) { if (e.key === 'Enter') askRabbit(); });
+    })();
+    </script>
 
     </div>
     <?php

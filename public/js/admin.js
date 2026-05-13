@@ -21,6 +21,8 @@
         $(this).addClass('active');
         $('.rabbit-panel').removeClass('active');
         $('#tab-' + tab).addClass('active');
+        // Auto-cargar log al abrir la pestaña
+        if (tab === 'log') loadLog();
     });
 
     function showResult($el, type, html) {
@@ -175,12 +177,12 @@
         });
     });
 
-    // Log: cargar
-    $('#btn-load-log').on('click', function () {
+    // Log: cargar (función reutilizable para carga automática y manual)
+    function loadLog() {
         $.post(ajax_url, { action: 'rabbit_bd_get_log', nonce })
         .done(function (res) {
             if (!res.success || !res.data.log.length) {
-                $('#log-table-wrapper').html('<p>El log esta vacio.</p>');
+                $('#log-table-wrapper').html('<p>El log está vacío.</p>');
                 return;
             }
             let html = '<table class="widefat striped"><thead><tr>' +
@@ -206,7 +208,9 @@
             html += '</tbody></table>';
             $('#log-table-wrapper').html(html);
         });
-    });
+    }
+
+    $('#btn-load-log').on('click', loadLog);
 
     // Log: limpiar
     $('#btn-clear-log').on('click', function () {
