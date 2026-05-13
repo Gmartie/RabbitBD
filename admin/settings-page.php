@@ -123,17 +123,18 @@ function rabbit_bd_page(): void {
                             <input type="text" name="rabbit_bd_images_dir"
                                    value="<?php echo esc_attr($images_dir); ?>"
                                    class="large-text">
-                            <p class="description">Ruta absoluta del servidor. Las imagenes se organizan en subcarpetas por SKU: <code>/SKU/SKU_01.jpg</code></p>
+                            <p class="description">Ruta absoluta del servidor donde se descargan las imágenes temporalmente. Las imagenes se organizan en subcarpetas por nombre de producto.</p>
                         </td>
                     </tr>
                     <tr>
-                        <th>URL base de imagenes (FTP)</th>
+                        <th>URL pública de imágenes</th>
                         <td>
-                            <input type="url" name="rabbit_bd_base_url"
-                                   value="<?php echo esc_attr($base_url); ?>"
-                                   class="large-text"
-                                   placeholder="http://staging.ejemplo.com/wp-content/uploads/imports/">
-                            <p class="description">Debe terminar en /. URL publica donde se subieron las imagenes por FTP. Las URLs finales incluiran la subcarpeta del SKU.</p>
+                            <?php
+                            $upload_info = wp_upload_dir();
+                            $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd-public/';
+                            ?>
+                            <code><?php echo esc_html($auto_public_url); ?></code>
+                            <p class="description">Generada automáticamente. El plugin copia las imágenes aquí tras descargarlas, sin necesidad de FTP.</p>
                         </td>
                     </tr>
                     <tr>
@@ -209,6 +210,10 @@ function rabbit_bd_page(): void {
             </div>
 
             <form id="form-generate-csv" enctype="multipart/form-data">
+                <?php
+                $upload_info     = wp_upload_dir();
+                $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd-public/';
+                ?>
                 <table class="form-table">
                     <tr>
                         <th>CSV de PrestaShop <em>(opcional)</em></th>
@@ -222,12 +227,12 @@ function rabbit_bd_page(): void {
                         <td><input type="file" name="master_file" accept=".csv,.txt" required></td>
                     </tr>
                     <tr>
-                        <th>URL base de imagenes</th>
+                        <th>URL base de imágenes</th>
                         <td>
                             <input type="url" id="gen-base-url" name="base_url"
-                                   value="<?php echo esc_attr($base_url); ?>"
+                                   value="<?php echo esc_attr($auto_public_url); ?>"
                                    class="large-text">
-                            <p class="description">Las URLs finales tendran formato: <code>base_url/SKU/SKU_01.jpg</code></p>
+                            <p class="description">Rellena automáticamente con la carpeta pública generada por el plugin. Las URLs finales tendrán formato: <code><?php echo esc_html($auto_public_url); ?>nombre-producto/nombre-producto_01.jpg</code></p>
                         </td>
                     </tr>
                 </table>
@@ -252,25 +257,44 @@ function rabbit_bd_page(): void {
 
         <!-- PASO 3 -->
         <div class="rabbit-panel" id="tab-step3">
-            <h2>Paso 3 · Validar accesibilidad HTTP de imagenes</h2>
-            <p>Verifica que el servidor sirve correctamente los estaticos subidos por FTP antes de importar en WooCommerce.</p>
+            <h2>Paso 3 · Validar accesibilidad HTTP de imágenes</h2>
+            <p>Verifica que las imágenes copiadas automáticamente son accesibles por HTTP antes de importar en WooCommerce.</p>
 
-            <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+            <?php
+            $upload_info     = wp_upload_dir();
+            $auto_public_url = trailingslashit($upload_info['baseurl']) . 'rabbit-bd-public/';
+            // Buscar una imagen real de ejemplo en la carpeta pública
+            $public_base_dir = trailingslashit($upload_info['basedir']) . 'rabbit-bd-public/';
+            $example_url     = '';
+            if (is_dir($public_base_dir)) {
+                foreach (new DirectoryIterator($public_base_dir) as $item) {
+                    if ($item->isDot() || !$item->isDir()) continue;
+                    $subdir = $item->getPathname();
+                    $slug   = $item->getFilename();
+                    foreach (glob($subdir . '/*.jpg') as $img) {
+                        $example_url = $auto_public_url . $slug . '/' . basename($img);
+                        break 2;
+                    }
+                }
+            }
+            if (!$example_url) {
+                $example_url = $auto_public_url . 'nombre-producto/nombre-producto_01.jpg';
+            }
+            ?>
+
+            <div class="rabbit-info-box">
+                <strong>URL pública generada automáticamente:</strong><br>
+                <code><?php echo esc_html($auto_public_url); ?></code><br>
+                <small>El Paso 1 ya copió las imágenes aquí. Puedes testear una URL de ejemplo abajo.</small>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;margin-top:16px">
                 <input type="url" id="test-image-url" class="large-text"
-                       placeholder="<?php echo esc_attr(rtrim($base_url, '/') . '/EJEMPLO/EJEMPLO_01.jpg'); ?>"
-                       style="max-width:520px">
+                       value="<?php echo esc_attr($example_url); ?>"
+                       style="max-width:560px">
                 <button id="btn-test-url" class="button button-secondary">Testear URL</button>
             </div>
             <div id="url-test-result" class="rabbit-result" style="display:none;margin-top:10px"></div>
-
-            <div class="rabbit-info-box" style="margin-top:20px">
-                <strong>Que buscamos:</strong> que la URL devuelva HTTP 200. Si devuelve 404, comprueba:
-                <ul style="list-style:disc;padding-left:20px">
-                    <li>Que WordPress este en el directorio correcto (<code>wp-admin</code>, <code>wp-content</code>).</li>
-                    <li>La configuracion de <code>.htaccess</code> / rewrite del subdominio.</li>
-                    <li>Que las imagenes esten en <code>/wp-content/uploads/imports/SKU/</code>.</li>
-                </ul>
-            </div>
         </div>
 
         <!-- PASO 4 -->
