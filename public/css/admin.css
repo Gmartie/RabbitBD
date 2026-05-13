@@ -1,4 +1,9 @@
-/* Rabbit BD — Admin Styles */
+/* Ocultar el footer de WordPress en la página del plugin */
+#toplevel_page_rabbit-bd ~ #wpfooter,
+#rabbit-bd-page + #wpfooter,
+body.toplevel_page_rabbit-bd #wpfooter {
+    display: none !important;
+}
 
 .rabbit-bd-wrap {
     max-width: 100%;

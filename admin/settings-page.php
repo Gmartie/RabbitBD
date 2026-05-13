@@ -13,6 +13,18 @@ add_action('admin_menu', function () {
     );
 });
 
+// Ocultar el footer de WordPress solo en la página del plugin
+add_filter('admin_footer_text', function ($text) {
+    $screen = get_current_screen();
+    if ($screen && $screen->id === 'toplevel_page_rabbit-bd') return '';
+    return $text;
+});
+add_filter('update_footer', function ($text) {
+    $screen = get_current_screen();
+    if ($screen && $screen->id === 'toplevel_page_rabbit-bd') return '';
+    return $text;
+}, 99);
+
 add_action('admin_init', function () {
     register_setting('rabbit_bd_options', 'rabbit_bd_presta_url');
     register_setting('rabbit_bd_options', 'rabbit_bd_presta_key');
@@ -43,6 +55,8 @@ add_action('admin_enqueue_scripts', function (string $hook) {
         'ajax_url'   => admin_url('admin-ajax.php'),
         'nonce'      => wp_create_nonce('rabbit_bd_nonce'),
         'batch_size' => RABBIT_BD_BATCH_SIZE,
+        'presta_url' => get_option('rabbit_bd_presta_url', ''),
+        'presta_key' => get_option('rabbit_bd_presta_key', ''),
     ]);
 });
 
@@ -67,6 +81,7 @@ function rabbit_bd_page(): void {
 
         <div class="rabbit-tabs">
             <button class="rabbit-tab active" data-tab="config">Configuracion</button>
+            <button class="rabbit-tab" data-tab="step0">0 · Exportar MASTER</button>
             <button class="rabbit-tab" data-tab="step1">1 · Descargar imagenes</button>
             <button class="rabbit-tab" data-tab="step2">2 · Generar CSV</button>
             <button class="rabbit-tab" data-tab="step3">3 · Validar URL</button>
@@ -134,6 +149,25 @@ function rabbit_bd_page(): void {
 
                 <?php submit_button('Guardar configuracion'); ?>
             </form>
+        </div>
+
+        <!-- PASO 0: Exportar MASTER CSV desde PrestaShop -->
+        <div class="rabbit-panel" id="tab-step0">
+            <h2>Paso 0 · Exportar MASTER CSV desde PrestaShop</h2>
+            <p>Genera automáticamente el archivo MASTER con todos tus productos extraídos directamente desde la API de PrestaShop. El CSV incluye nombre, SKU, precio y categorías, listo para usar en el Paso 2.</p>
+
+            <div class="rabbit-info-box">
+                <strong>Columnas generadas:</strong><br>
+                <code>name</code> · <code>sku</code> · <code>price</code> · <code>categories</code><br>
+                <small>Las categorías raíz (Home, Root) se excluyen automáticamente.</small>
+            </div>
+
+            <?php if (empty($presta_url) || empty($presta_key)): ?>
+                <div class="rabbit-warning">Configura primero la URL y API Key de PrestaShop en la pestaña Configuracion.</div>
+            <?php else: ?>
+                <button id="btn-generate-master" class="button button-primary button-large">Exportar MASTER desde PrestaShop</button>
+                <div id="master-result" class="rabbit-result" style="display:none"></div>
+            <?php endif; ?>
         </div>
 
         <!-- PASO 1 -->

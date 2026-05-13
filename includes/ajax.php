@@ -99,6 +99,54 @@ function rabbit_ajax_download_images(): void {
     ]);
 }
 
+// Genera el MASTER CSV directamente desde la API de PrestaShop
+add_action('wp_ajax_rabbit_bd_generate_master', 'rabbit_ajax_generate_master');
+function rabbit_ajax_generate_master(): void {
+    rabbit_verify_nonce();
+
+    $api_url = sanitize_text_field($_POST['presta_url']     ?? '');
+    $api_key = sanitize_text_field($_POST['presta_api_key'] ?? '');
+
+    if (!filter_var($api_url, FILTER_VALIDATE_URL)) {
+        wp_send_json_error(['message' => 'URL de PrestaShop no válida.']);
+    }
+
+    $api = new Rabbit_Prestashop_API($api_url, $api_key);
+    $ids = $api->get_product_ids();
+
+    if (empty($ids)) {
+        wp_send_json_error(['message' => 'No se encontraron productos.']);
+    }
+
+    $rows = $api->get_master_rows($ids);
+
+    if (empty($rows)) {
+        wp_send_json_error(['message' => 'No se pudieron obtener datos de los productos.']);
+    }
+
+    // Escribir CSV
+    $upload_dir  = wp_upload_dir();
+    $output_path = $upload_dir['basedir'] . '/rabbit-bd-master.csv';
+
+    $fp = fopen($output_path, 'w');
+    if (!$fp) {
+        wp_send_json_error(['message' => 'No se pudo crear el archivo CSV. Revisa permisos del directorio de uploads.']);
+    }
+
+    // BOM UTF-8 para compatibilidad con Excel
+    fwrite($fp, "\xEF\xBB\xBF");
+    fputcsv($fp, ['name', 'sku', 'price', 'categories'], ';');
+    foreach ($rows as $row) {
+        fputcsv($fp, [$row['name'], $row['sku'], $row['price'], $row['categories']], ';');
+    }
+    fclose($fp);
+
+    wp_send_json_success([
+        'productos' => count($rows),
+        'csv_url'   => $upload_dir['baseurl'] . '/rabbit-bd-master.csv',
+    ]);
+}
+
 // Genera el CSV de importación para WooCommerce
 add_action('wp_ajax_rabbit_bd_generate_csv', 'rabbit_ajax_generate_csv');
 function rabbit_ajax_generate_csv(): void {

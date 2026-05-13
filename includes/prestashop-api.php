@@ -18,6 +18,61 @@ class Rabbit_Prestashop_API {
         $this->api_key  = $api_key;
     }
 
+    /**
+     * Obtiene el nombre de una categoría por su ID.
+     */
+    public function get_category_name(int $cat_id): string {
+        static $cache = [];
+        if (isset($cache[$cat_id])) return $cache[$cat_id];
+
+        $url  = "{$this->base_url}/api/categories/{$cat_id}?output_format=JSON";
+        $body = $this->request($url);
+        if (is_wp_error($body)) {
+            $cache[$cat_id] = '';
+            return '';
+        }
+        $data = json_decode($body, true);
+        $name = self::extract_multilang_field($data['category'] ?? [], 'name');
+        $cache[$cat_id] = $name;
+        return $name;
+    }
+
+    /**
+     * Genera un array con los datos MASTER de todos los productos.
+     * Devuelve filas con: name, sku, price, categories
+     */
+    public function get_master_rows(array $ids): array {
+        $rows = [];
+        // IDs de categorías raíz a ignorar (Home, Root)
+        $skip_cats = [1, 2];
+
+        foreach ($ids as $id) {
+            $product = $this->get_product((int)$id);
+            if (!$product) continue;
+
+            $sku   = $product['reference'] ?? '';
+            $name  = self::extract_multilang_field($product, 'name');
+            $price = number_format((float)($product['price'] ?? 0), 2, '.', '');
+
+            // Resolver IDs de categoría a nombres
+            $cat_ids   = array_column($product['associations']['categories'] ?? [], 'id');
+            $cat_names = [];
+            foreach ($cat_ids as $cid) {
+                if (in_array((int)$cid, $skip_cats, true)) continue;
+                $cname = $this->get_category_name((int)$cid);
+                if ($cname !== '') $cat_names[] = $cname;
+            }
+
+            $rows[] = [
+                'name'       => $name,
+                'sku'        => $sku,
+                'price'      => $price,
+                'categories' => implode(',', $cat_names),
+            ];
+        }
+        return $rows;
+    }
+
     public function get_product_ids(): array {
         $url  = "{$this->base_url}/api/products?output_format=JSON&display=[id]";
         $body = $this->request($url);
@@ -54,15 +109,20 @@ class Rabbit_Prestashop_API {
      * @return string[]  Lista de nombres de archivo guardados
      */
     public function download_all_images_for_product(array $product, string $base_dir): array {
-        $sku = sanitize_file_name($product['reference'] ?? '');
+        $sku  = sanitize_file_name($product['reference'] ?? '');
+        $name = self::extract_multilang_field($product, 'name');
 
         if (empty($sku)) {
-            $name = self::extract_multilang_field($product, 'name');
             rabbit_bd_log('', $name, 'error', 'Producto sin SKU, se omite.');
             return [];
         }
 
-        $dir = trailingslashit($base_dir) . $sku;
+        // Slug del nombre del producto para carpeta y archivos (legible y sin caracteres raros)
+        $name_slug = empty($name)
+            ? $sku
+            : sanitize_file_name(strtolower(str_replace([' ', '/'], '-', $name)));
+
+        $dir = trailingslashit($base_dir) . $name_slug;
         wp_mkdir_p($dir);
 
         // Validar que la asociacion de imagenes existe y es un array
@@ -88,7 +148,7 @@ class Rabbit_Prestashop_API {
                 continue;
             }
 
-            $filename = sprintf('%s_%02d.jpg', $sku, $index);
+            $filename = sprintf('%s_%02d.jpg', $name_slug, $index);
             $filepath = "{$dir}/{$filename}";
 
             $result = file_put_contents($filepath, $bytes);

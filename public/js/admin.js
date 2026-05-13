@@ -43,6 +43,37 @@
         $('#download-progress-wrap').show();
     }
 
+    // Paso 0: Exportar MASTER CSV desde PrestaShop
+    $('#btn-generate-master').on('click', function () {
+        const $btn    = $(this);
+        const $result = $('#master-result');
+
+        $btn.prop('disabled', true);
+        showResult($result, 'info', spinner() + ' Conectando con PrestaShop y extrayendo productos... Esto puede tardar unos segundos.');
+
+        $.post(ajax_url, {
+            action         : 'rabbit_bd_generate_master',
+            nonce          : nonce,
+            presta_url     : $('[name="rabbit_bd_presta_url"]').val() || rabbitBD.presta_url,
+            presta_api_key : $('[name="rabbit_bd_presta_key"]').val() || rabbitBD.presta_key,
+        })
+        .done(function (res) {
+            if (res.success) {
+                showResult($result, 'success',
+                    'MASTER generado con <strong>' + res.data.productos + ' productos</strong>.<br>' +
+                    '<a href="' + res.data.csv_url + '" download class="button button-primary button-small" style="margin-top:8px">Descargar MASTER CSV</a>' +
+                    '<p style="margin-top:10px;color:#555">Ahora ve al <strong>Paso 2</strong> y sube este archivo como CSV MASTER.</p>'
+                );
+            } else {
+                showResult($result, 'error', res.data.message || 'Error desconocido.');
+            }
+        })
+        .fail(function () {
+            showResult($result, 'error', 'Error de red al generar el MASTER.');
+        })
+        .always(function () { $btn.prop('disabled', false); });
+    });
+
     // Paso 1: Descarga por lotes con barra de progreso y pausa/reanudacion
     function runDownloadBatch() {
         if (!downloadState.running || downloadState.paused) return;
@@ -50,8 +81,8 @@
         $.post(ajax_url, {
             action     : 'rabbit_bd_download_images',
             nonce      : nonce,
-            presta_url     : $('[name="rabbit_bd_presta_url"]').val() || '',
-            presta_api_key : $('[name="rabbit_bd_presta_key"]').val() || '',
+            presta_url     : $('[name="rabbit_bd_presta_url"]').val() || rabbitBD.presta_url,
+            presta_api_key : $('[name="rabbit_bd_presta_key"]').val() || rabbitBD.presta_key,
             offset     : downloadState.offset,
         })
         .done(function (res) {
